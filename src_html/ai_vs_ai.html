@@ -289,6 +289,7 @@
 
   <div id="gameControls" class="game-controls hidden">
     <button id="pauseBtn" class="ghost-btn">暂停游戏</button>
+    <button id="speedBtn" class="ghost-btn">加速 1.0x</button>
     <button id="restartGameBtn" class="ghost-btn">重新开始</button>
     <button id="backHomeBtn" class="ghost-btn">返回主页</button>
   </div>
@@ -297,7 +298,7 @@
     <div class="panel">
       <h1>3D 地块征服</h1>
       <p>随机生成地块，玩家或 AI 多方混战。</p>
-      <p>默认规则：初始地块兵力 25，中立守军 25，占领地块每秒 +1 兵力。</p>
+      <p>默认规则：初始地块兵力 25，中立守军 15，占领地块每秒 +1 兵力。</p>
       <div class="menu-actions">
         <button id="humanModeBtn">人机对战</button>
         <button id="aiModeBtn">AI 对战</button>
@@ -311,7 +312,7 @@
       <h1 id="configTitle">开始对局</h1>
       <p id="configDesc">调整参数后开始。</p>
       <div class="config">
-        <label>地块数 n <input id="tileCountInput" type="number" min="8" max="60" value="24" /></label>
+        <label>地块数 n <input id="tileCountInput" type="number" min="8" max="200" value="24" /></label>
         <label><span id="playerCountLabel">玩家数 m</span><input id="playerCountInput" type="number" min="2" max="10" value="4" /></label>
       </div>
       <div class="menu-actions">
@@ -366,6 +367,7 @@
     import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 
     const INITIAL_ARMY = 25;
+    const NEUTRAL_INITIAL_ARMY = 15;
     const LONG_PRESS_MS = 180;
     const AI_THINK_INTERVAL = 0.28;
     const AI_RANDOM_START_DELAY_MAX_SEC = 3;
@@ -376,6 +378,13 @@
     const TROOP_MOVE_SPEED = 7;
     const CAPITAL_DEFENSE_MULT = 2;
     const TROOP_PACKET_WORLD_GAP = 1.2;
+    const TROOP_PARTICLE_RADIUS_DESKTOP = 0.24;
+    const TROOP_PARTICLE_RADIUS_MOBILE = 0.34;
+    const LABEL_HEIGHT = 1.6;
+    const TILE_RADIUS = 2.4;
+    const TILE_MIN_GAP = 0.32;
+    const TILE_PLACEMENT_RADIUS_PAD = 5.4;
+    const TILE_MAX_SAFE_CAP = 180;
 
     const MODE_HUMAN_VS_AI = "human";
     const MODE_AI_VS_AI = "ai";
@@ -402,6 +411,7 @@
     const endHomeBtn = document.getElementById("endHomeBtn");
     const gameControls = document.getElementById("gameControls");
     const pauseBtn = document.getElementById("pauseBtn");
+    const speedBtn = document.getElementById("speedBtn");
     const restartGameBtn = document.getElementById("restartGameBtn");
     const backHomeBtn = document.getElementById("backHomeBtn");
 
@@ -461,7 +471,7 @@
     const pathMaterial = new LineMaterial({ color: 0x9df4ff, transparent: true, opacity: 0.5, linewidth: 5 });
     pathMaterial.resolution.set(window.innerWidth, window.innerHeight);
     const pathLines = [];
-    const troopParticleGeometry = new THREE.SphereGeometry(0.24, 12, 12);
+    let troopParticleGeometry = null;
     const troopMaterials = new Map();
     const troopMarches = [];
     const troopDispatchQueues = [];
@@ -474,6 +484,9 @@
     let gameMode = MODE_HUMAN_VS_AI;
     let tileCount = 24;
     let playerCount = 4;
+    const SPEED_LEVELS = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0];
+    let speedLevelIndex = 0;
+    let timeScale = SPEED_LEVELS[speedLevelIndex];
 
     let players = [];
     let tiles = [];
@@ -497,6 +510,65 @@
       return Math.max(min, Math.min(max, Math.floor(v)));
     }
 
+    function rebuildTroopParticleGeometry() {
+      if (troopParticleGeometry) troopParticleGeometry.dispose();
+      const radius = compactUI ? TROOP_PARTICLE_RADIUS_MOBILE : TROOP_PARTICLE_RADIUS_DESKTOP;
+      troopParticleGeometry = new THREE.SphereGeometry(radius, 12, 12);
+      for (const march of troopMarches) refreshTroopPacketMesh(march);
+    }
+
+    function getTilePlacementRadius() {
+      return mapRadius + TILE_PLACEMENT_RADIUS_PAD;
+    }
+
+    function buildHexPackedPoints(radius, minCenterDist, rotation = 0) {
+      const pts = [];
+      const rowStep = minCenterDist * Math.sqrt(3) * 0.5;
+      const maxRow = Math.ceil(radius / rowStep);
+      const maxCol = Math.ceil(radius / minCenterDist) + 2;
+      const cosR = Math.cos(rotation);
+      const sinR = Math.sin(rotation);
+
+      for (let row = -maxRow; row <= maxRow; row += 1) {
+        const z = row * rowStep;
+        const xOffset = (Math.abs(row) % 2) * (minCenterDist * 0.5);
+        for (let col = -maxCol; col <= maxCol; col += 1) {
+          const x = col * minCenterDist + xOffset;
+          const rx = x * cosR - z * sinR;
+          const rz = x * sinR + z * cosR;
+          if (rx * rx + rz * rz <= radius * radius) {
+            pts.push({ x: rx, z: rz });
+          }
+        }
+      }
+
+      return pts;
+    }
+
+    function getMaxTileCountByArea() {
+      const placementRadius = getTilePlacementRadius();
+      const minCenterDist = TILE_RADIUS * 2 + TILE_MIN_GAP;
+      const packed = buildHexPackedPoints(placementRadius, minCenterDist, 0);
+      return Math.max(8, Math.min(TILE_MAX_SAFE_CAP, packed.length));
+    }
+
+    function refreshTileLimitUI() {
+      const maxTiles = getMaxTileCountByArea();
+      tileCountInput.max = String(maxTiles);
+      tileCount = clampInt(tileCount, 8, maxTiles);
+      if (Number(tileCountInput.value || 0) > maxTiles || !tileCountInput.value) {
+        tileCountInput.value = String(tileCount);
+      }
+      if (playerCount > tileCount) {
+        playerCount = tileCount;
+        playerCountInput.value = String(playerCount);
+      }
+    }
+
+    function updateSpeedButtonLabel() {
+      speedBtn.textContent = `加速 ${timeScale.toFixed(1)}x`;
+    }
+
     function toRgbaString(hexColor, alpha = 1) {
       const c = new THREE.Color(hexColor);
       const r = Math.round(c.r * 255);
@@ -513,24 +585,21 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
+      ctx.fillStyle = ownerColor || "#ffffff";
       if (compactUI) {
         ctx.shadowColor = "rgba(0,0,0,0.65)";
         ctx.shadowBlur = 10;
-        ctx.fillStyle = ownerColor || "#ffffff";
-        ctx.font = "700 70px Trebuchet MS";
-        ctx.fillText(value, 128, 66);
+        ctx.font = "700 140px Trebuchet MS";
+        ctx.fillText(value, 128, 64);
         ctx.shadowBlur = 0;
         return;
       }
 
-      ctx.fillStyle = "rgba(10,18,36,0.68)";
-      ctx.fillRect(0, 12, 256, 104);
-      ctx.strokeStyle = ownerColor || "rgba(170,220,255,0.6)";
-      ctx.lineWidth = 4;
-      ctx.strokeRect(4, 16, 248, 96);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "600 36px Trebuchet MS";
-      ctx.fillText(value, 128, 66);
+      ctx.shadowColor = "rgba(0,0,0,0.48)";
+      ctx.shadowBlur = 7;
+      ctx.font = "700 72px Trebuchet MS";
+      ctx.fillText(value, 128, 64);
+      ctx.shadowBlur = 0;
     }
 
     function updateMapLayout(recenter = false) {
@@ -573,8 +642,14 @@
 
       const texture = new THREE.CanvasTexture(canvas);
       texture.needsUpdate = true;
-      const material = new THREE.SpriteMaterial({ map: texture, depthWrite: false, transparent: true });
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        depthWrite: false,
+        depthTest: false,
+        transparent: true,
+      });
       const sprite = new THREE.Sprite(material);
+      sprite.center.set(0.5, 0.5);
       sprite.scale.set(compactUI ? 4.6 : 4.2, compactUI ? 2.2 : 2.1, 1);
       sprite.userData.canvas = canvas;
       sprite.userData.ctx = ctx;
@@ -598,51 +673,20 @@
       pathLines.length = 0;
 
       tiles = [];
-      const radius = mapRadius;
-      const minTileDistance = THREE.MathUtils.clamp((Math.sqrt((Math.PI * radius * radius) / tileCount) * 0.92), 3.8, 6.8);
-      const minTileDistanceSq = minTileDistance * minTileDistance;
-      const isValidPos = (px, pz, minSq) => {
-        for (const t of tiles) {
-          const dx = t.mesh.position.x - px;
-          const dz = t.mesh.position.z - pz;
-          if (dx * dx + dz * dz < minSq) return false;
-        }
-        return true;
-      };
+      const placementRadius = getTilePlacementRadius();
+      const minCenterDist = TILE_RADIUS * 2 + TILE_MIN_GAP;
+      const packedPoints = buildHexPackedPoints(placementRadius, minCenterDist, Math.random() * (Math.PI / 3));
+
+      for (let i = packedPoints.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [packedPoints[i], packedPoints[j]] = [packedPoints[j], packedPoints[i]];
+      }
+
+      tileCount = Math.min(tileCount, packedPoints.length);
+      tileCountInput.value = String(tileCount);
 
       for (let i = 0; i < tileCount; i += 1) {
-        let tries = 0;
-        let x = 0;
-        let z = 0;
-        let ok = false;
-
-        while (!ok && tries < 1200) {
-          const angle = Math.random() * Math.PI * 2;
-          const r = Math.sqrt(Math.random()) * radius;
-          x = Math.cos(angle) * r;
-          z = Math.sin(angle) * r;
-          ok = isValidPos(x, z, minTileDistanceSq);
-          tries += 1;
-        }
-
-        // Dense maps may fail strict spacing after many retries; relax the distance progressively.
-        if (!ok) {
-          let relax = 0.94;
-          while (!ok && relax >= 0.6) {
-            const relaxedSq = minTileDistanceSq * relax * relax;
-            for (let t = 0; t < 800; t += 1) {
-              const angle = Math.random() * Math.PI * 2;
-              const r = Math.sqrt(Math.random()) * radius;
-              x = Math.cos(angle) * r;
-              z = Math.sin(angle) * r;
-              if (isValidPos(x, z, relaxedSq)) {
-                ok = true;
-                break;
-              }
-            }
-            relax -= 0.08;
-          }
-        }
+        const { x, z } = packedPoints[i];
 
         const mesh = new THREE.Mesh(
           new THREE.CylinderGeometry(2, 2.4, 1.2, 28),
@@ -660,7 +704,7 @@
         tileGroup.add(mesh);
 
         const label = makeLabelSprite(String(INITIAL_ARMY));
-        label.position.set(x, 3.2, z);
+        label.position.set(x, LABEL_HEIGHT, z);
         labelGroup.add(label);
 
         const capitalMarker = new THREE.Mesh(
@@ -725,7 +769,7 @@
     function resetOwnership() {
       for (const tile of tiles) {
         tile.owner = -1;
-        tile.army = INITIAL_ARMY;
+        tile.army = NEUTRAL_INITIAL_ARMY;
         tile.reservedArmy = 0;
         tile.isCapital = false;
         tile.capitalOwner = -1;
@@ -1193,8 +1237,8 @@
           if (tile.owner >= 0) {
             tile.army += 1;
             updateLabel(tile);
-          } else if (tile.owner === -1 && tile.army < INITIAL_ARMY) {
-            tile.army = Math.min(INITIAL_ARMY, tile.army + 1);
+          } else if (tile.owner === -1 && tile.army < NEUTRAL_INITIAL_ARMY) {
+            tile.army = Math.min(NEUTRAL_INITIAL_ARMY, tile.army + 1);
             updateLabel(tile);
           }
         }
@@ -1279,6 +1323,7 @@
       rulesOverlay.classList.add("hidden");
       endOverlay.classList.add("hidden");
       configOverlay.classList.remove("hidden");
+      refreshTileLimitUI();
       tileCountInput.value = String(tileCount);
       playerCountInput.value = String(playerCount);
     }
@@ -1305,16 +1350,21 @@
     function animate(ts) {
       requestAnimationFrame(animate);
       if (!lastTime) lastTime = ts;
-      const dt = Math.min(0.05, (ts - lastTime) / 1000);
+      const baseDt = Math.min(0.05, (ts - lastTime) / 1000);
       lastTime = ts;
 
       if (gameStarted && !gameOver && !isPaused) {
-        growArmy(dt);
-        regenMoveCharges(dt);
-        aiThink(dt);
-        updateTroopDispatchQueues(dt);
-        updateTroopMarches(dt);
-        checkGameState();
+        let remain = baseDt * timeScale;
+        while (remain > 0 && !gameOver) {
+          const dt = Math.min(0.05, remain);
+          growArmy(dt);
+          regenMoveCharges(dt);
+          aiThink(dt);
+          updateTroopDispatchQueues(dt);
+          updateTroopMarches(dt);
+          checkGameState();
+          remain -= dt;
+        }
         updateHud();
       }
 
@@ -1388,7 +1438,9 @@
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       pathMaterial.resolution.set(window.innerWidth, window.innerHeight);
       updateMapLayout(false);
+      refreshTileLimitUI();
       if (prevCompact !== compactUI) {
+        rebuildTroopParticleGeometry();
         for (const tile of tiles) updateLabel(tile);
       }
     }
@@ -1409,9 +1461,11 @@
     cancelConfigBtn.addEventListener("click", showHome);
 
     startBtn.addEventListener("click", () => {
-      tileCount = clampInt(Number(tileCountInput.value || 24), 8, 60);
+      const maxTiles = getMaxTileCountByArea();
+      tileCount = clampInt(Number(tileCountInput.value || 24), 8, maxTiles);
       playerCount = clampInt(Number(playerCountInput.value || 4), 2, 10);
       playerCount = Math.min(playerCount, tileCount);
+      tileCountInput.max = String(maxTiles);
       playerCountInput.value = String(playerCount);
       resetGame();
     });
@@ -1422,6 +1476,11 @@
     pauseBtn.addEventListener("click", () => {
       if (!gameStarted || gameOver) return;
       setPauseState(!isPaused);
+    });
+    speedBtn.addEventListener("click", () => {
+      speedLevelIndex = (speedLevelIndex + 1) % SPEED_LEVELS.length;
+      timeScale = SPEED_LEVELS[speedLevelIndex];
+      updateSpeedButtonLabel();
     });
     restartGameBtn.addEventListener("click", () => {
       if (!gameStarted) return;
@@ -1439,6 +1498,8 @@
 
     updateMapLayout(true);
     updateHud();
+    updateSpeedButtonLabel();
+    rebuildTroopParticleGeometry();
     openConfig(MODE_AI_VS_AI);
     animate(0);
   </script>
