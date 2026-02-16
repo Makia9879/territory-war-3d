@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D 地块征服 - 游戏说明</title>
+  <style>
+    :root {
+      --bg-a: #0c1328;
+      --bg-b: #1a1f37;
+      --panel: rgba(12, 18, 34, 0.84);
+      --text: #eaf2ff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      font-family: "Trebuchet MS", "PingFang SC", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at 20% 10%, #213a66, var(--bg-a) 45%, var(--bg-b) 100%);
+      padding: 16px;
+      display: grid;
+      place-items: center;
+    }
+
+    .panel {
+      width: min(920px, 100%);
+      border: 1px solid rgba(170, 216, 255, 0.3);
+      border-radius: 16px;
+      background: linear-gradient(160deg, rgba(29, 44, 75, 0.9), rgba(17, 15, 40, 0.9));
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+      padding: 22px;
+    }
+
+    h1 { font-size: clamp(28px, 5vw, 46px); margin-bottom: 10px; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .item {
+      border: 1px solid rgba(170, 216, 255, 0.22);
+      border-radius: 12px;
+      padding: 12px;
+      background: rgba(8, 14, 30, 0.5);
+    }
+
+    .item h2 {
+      font-size: 17px;
+      margin-bottom: 6px;
+      color: #bfe4ff;
+    }
+
+    .item p {
+      font-size: 14px;
+      line-height: 1.5;
+      opacity: 0.95;
+    }
+
+    .actions {
+      margin-top: 16px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      text-decoration: none;
+      border: 0;
+      border-radius: 999px;
+      font-size: 16px;
+      font-weight: 700;
+      padding: 10px 22px;
+      color: #09253e;
+      background: linear-gradient(90deg, #8af2ff, #87ff9f);
+    }
+
+    .btn.secondary {
+      color: #d8ebff;
+      background: linear-gradient(120deg, #31557e, #2b3457);
+    }
+
+    @media (max-width: 768px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <h1>游戏说明</h1>
+
+    <div class="grid">
+      <section class="item">
+        <h2>操作</h2>
+        <p>长按自己的地块并拖动，经过己方地块可连选；松手后已选地块会向目标方向派兵。</p>
+      </section>
+      <section class="item">
+        <h2>行动点</h2>
+        <p>每名玩家有 3 点行动点。每次派兵消耗 1 点，每 3 秒恢复 1 点，最多恢复到 3 点。</p>
+      </section>
+      <section class="item">
+        <h2>兵力与占领</h2>
+        <p>己方地块每秒 +1 兵力。攻击非己方地块按 1:1 消耗，进攻兵力必须超过守军才会占领。</p>
+      </section>
+      <section class="item">
+        <h2>特殊规则</h2>
+        <p>首都（黄环）在原阵营持有时防守为 2:1；敌对在途行军颗粒相撞会按 1:1 抵消。</p>
+      </section>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="./index.html">返回主页</a>
+      <a class="btn secondary" href="./human_vs_ai.html">去人机对战</a>
+      <a class="btn secondary" href="./ai_vs_ai.html">去 AI 对战</a>
+    </div>
+  </main>
+</body>
+</html>
