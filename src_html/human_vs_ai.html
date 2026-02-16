@@ -51,6 +51,16 @@
 
     .card b { display: block; margin-top: 3px; font-size: 19px; }
 
+    .color-chip {
+      display: inline-block;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      border: 2px solid rgba(255, 255, 255, 0.65);
+      box-shadow: 0 0 0 2px rgba(10, 20, 38, 0.55);
+      vertical-align: middle;
+    }
+
     .game-controls {
       position: fixed;
       right: 14px;
@@ -228,6 +238,12 @@
       .card b {
         margin-top: 2px;
         font-size: 28px;
+      }
+
+      .color-chip {
+        width: 24px;
+        height: 24px;
+        border-radius: 7px;
       }
 
       .game-controls {
@@ -759,11 +775,12 @@
       }
 
       if (hasHumanPlayer()) {
-        stat1Label.textContent = "你的地块";
+        const myColor = `#${new THREE.Color(players[0]?.color || HUMAN_COLOR).getHexString()}`;
+        stat1Label.textContent = "你的颜色";
         stat2Label.textContent = "你的总兵力";
         stat3Label.textContent = "行动点";
         stat4Label.textContent = "剩余玩家阵营";
-        stat1Value.textContent = String(humanTerritory);
+        stat1Value.innerHTML = `<span class="color-chip" style="background:${myColor};"></span>`;
         stat2Value.textContent = String(humanArmy);
         stat3Value.textContent = `${players[0] ? players[0].moveCharges : 0}/${MOVE_CHARGE_MAX}`;
         stat4Value.textContent = String(aliveFactions.size);
